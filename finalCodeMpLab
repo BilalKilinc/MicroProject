@@ -1,0 +1,143 @@
+// CONFIG
+#pragma config FOSC = HS        // Oscillator Selection bits (HS oscillator)
+#pragma config WDTE = OFF       // Watchdog Timer Enable bit (WDT disabled)
+#pragma config PWRTE = OFF       // Power-up Timer Enable bit (PWRT enabled)
+#pragma config BOREN = ON      // Brown-out Reset Enable bit (BOR disabled)
+#pragma config LVP = OFF        // Low-Voltage (Single-Supply) In-Circuit Serial Programming Enable bit (RB3 is digital I/O, HV on MCLR must be used for programming)
+#pragma config CPD = OFF        // Data EEPROM Memory Code Protection bit (Data EEPROM code protection off)
+#pragma config WRT = OFF        // Flash Program Memory Write Enable bits (Write protection off; all program memory may be written to by EECON control)
+#pragma config CP = OFF         // Flash Program Memory Code Protection bit (Code protection off)
+
+#include <xc.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include "I2C_LCD.h"
+
+#define _XTAL_FREQ 2000000
+#define Baud 9600
+
+void UART_RX_Init(void);
+uint8_t UART_Read(void);
+void UART_Read_String(uint8_t *, uint16_t);
+void Process_RFID_Data(uint8_t *);
+void Display_Result(char *);
+
+uint8_t authorized_ID[4] = {227, 107, 72, 37};
+
+void main(void)
+{
+    uint8_t receivedData[16]; // Buffer to store incoming data
+    uint16_t length = 16;
+
+    UART_RX_Init(); // Initialize UART communication
+    I2C_Master_Init(); // Initialize I2C communication
+    LCD_Init(0x4E); // Initialize the LCD with I2C address 0x4E
+    __delay_ms(2000); // 2-second delay
+
+    LCD_Set_Cursor(1, 1);
+    LCD_Write_String("Init done");
+
+    while(1)
+    {
+        LCD_Clear();
+        LCD_Set_Cursor(1, 1);
+        LCD_Write_String("bekleniyor");
+        __delay_ms(1000); // 1-second delay
+
+        UART_Read_String(receivedData, length); // Read data from UART
+
+        LCD_Clear();
+        LCD_Set_Cursor(1, 1);
+        LCD_Write_String("Data Recvd");
+        __delay_ms(1000); // 1-second delay
+
+        Process_RFID_Data(receivedData); // Process the received data
+    }
+    return;
+}
+
+void UART_RX_Init()
+{
+    uint16_t x = ((_XTAL_FREQ / 16) / Baud) - 1; // Correct value for SPBRG for 9600 baud
+
+    SPBRG = x; // Write to SPBRG register
+    
+    SYNC = 0;
+    SPEN = 1;
+    TRISC6 = 1; // Set according to the datasheet
+    TRISC7 = 1; // Set according to the datasheet
+    RCIE = 1; // Enable UART Receive Interrupt
+    PEIE = 1; // Enable Peripheral Interrupt
+    GIE = 1; // Enable Global Interrupt
+    CREN = 1; // Enable Continuous Receive Mode
+}
+
+uint8_t UART_Read()
+{
+    while(!RCIF); // Wait until data is received
+    return RCREG;
+}
+
+void UART_Read_String(uint8_t *Output, uint16_t length)
+{
+    uint16_t i;
+    for(i = 0; i < length; i++) {
+        Output[i] = UART_Read();
+        
+        if(Output[i] == '\n') { // Check for end-of-line character
+            Output[i] = '\0'; // Null-terminate the string
+            break;
+        }
+    }
+}
+
+void Process_RFID_Data(uint8_t *data)
+{
+    // Process the incoming data
+    uint8_t id[4] = {0}; // Array to store ID
+    int index = 0;
+
+    // Parse comma-separated data
+    char *token = strtok((char *)data, ",");
+    while (token != NULL && index < 4) {
+        int value = atoi(token);
+        if (value >= 0 && value <= 255) { // Check if value is within valid byte range
+            id[index++] = (uint8_t)value;
+        } else {
+            Display_Result(" basarisiz"); // Invalid value
+            return;
+        }
+        token = strtok(NULL, ",");
+    }
+
+    // Check ID and display appropriate message
+    if(index == 4 && 
+       id[0] == authorized_ID[0] && 
+       id[1] == authorized_ID[1] && 
+       id[2] == authorized_ID[2] && 
+       id[3] == authorized_ID[3]) {
+        Display_Result(" basarili");
+    } else {
+        Display_Result(" basarisiz");
+    }
+}
+
+void Display_Result(char *result)
+{
+    LCD_Clear();
+    LCD_Set_Cursor(1, 1);
+    LCD_Write_String(" Kapi Durumu: ");
+    LCD_Set_Cursor(2, 1);
+    LCD_Write_String(result);
+    __delay_ms(1000); // 1-second delay
+}
+
+void interrupt ISR(void)
+{
+    if (RCIF == 1)
+    {
+        // Read RCREG buffer...
+        RCIF = 0; // Clear the flag
+    }
+}
