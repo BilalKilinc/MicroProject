@@ -1,0 +1,29 @@
+#include <MFRC522.h>
+#include <SPI.h>
+
+int RST_PIN = 9; // RC522 reset pin
+int SS_PIN = 10; // RC522 chip select pin
+MFRC522 rfid(SS_PIN, RST_PIN); // RC522 settings
+byte authorized_ID[4] = {227, 107, 72, 37}; // Authorized card ID
+
+void setup() {
+  Serial.begin(9600); // Start serial communication at 9600 baud
+  SPI.begin(); // Start SPI communication
+  rfid.PCD_Init(); // Initialize the RC522 module
+}
+
+void loop() {
+  if (!rfid.PICC_IsNewCardPresent()) // Wait for a new card
+    return;
+  if (!rfid.PICC_ReadCardSerial()) // Wait until the card is read
+    return;
+
+  // Send the read card ID over the serial port
+  for (int i = 0; i < 4; i++) {
+    Serial.print(rfid.uid.uidByte[i]);
+    if (i < 3) Serial.print(","); // Separate values with commas
+  }
+  Serial.println(); // End the line
+  
+  rfid.PICC_HaltA();
+}
